@@ -64,6 +64,31 @@ impl HumanInDiscord {
 #[async_trait::async_trait]
 impl Human for HumanInDiscord {
     async fn ask(&self, question: &str) -> anyhow::Result<String> {
+        let (ctx, thread) = self.get_ctx_and_thread(question).await?;
+        let message_text = format!("<@{}> {question}", self.user_id.get());
+        thread
+            .send_message(&ctx.http, CreateMessage::new().content(message_text))
+            .await?;
+        let message = thread
+            .await_reply(ctx)
+            .author_id(self.user_id)
+            .await
+            .ok_or_else(|| anyhow::anyhow!("Failed to await message from the human in Discord"))?;
+        Ok(message.content)
+    }
+
+    async fn notify(&self, message: &str) -> anyhow::Result<()> {
+        let (ctx, thread) = self.get_ctx_and_thread(message).await?;
+        let message_text = format!("<@{}> {message}", self.user_id.get());
+        thread
+            .send_message(&ctx.http, CreateMessage::new().content(message_text))
+            .await?;
+        Ok(())
+    }
+}
+
+impl HumanInDiscord {
+    async fn get_ctx_and_thread(&self, title: &str) -> anyhow::Result<(&Context, ChannelId)> {
         let ctx = self
             .handler
             .ctx
@@ -72,7 +97,7 @@ impl Human for HumanInDiscord {
         let thread = self
             .thread
             .get_or_try_init(|| async {
-                let thread_title = question.chars().take(100).collect::<String>();
+                let thread_title = title.chars().take(100).collect::<String>();
                 let channel = self
                     .channel_id
                     .create_thread(
@@ -85,15 +110,6 @@ impl Human for HumanInDiscord {
                 anyhow::Ok(channel.id)
             })
             .await?;
-        let message_text = format!("<@{}> {question}", self.user_id.get());
-        thread
-            .send_message(&ctx.http, CreateMessage::new().content(message_text))
-            .await?;
-        let message = thread
-            .await_reply(ctx)
-            .author_id(self.user_id)
-            .await
-            .ok_or_else(|| anyhow::anyhow!("Failed to await message from the human in Discord"))?;
-        Ok(message.content)
+        Ok((ctx, *thread))
     }
 }
